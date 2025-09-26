@@ -1,0 +1,341 @@
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============== STATION CONFIG ===============
+
+model StationConfig {
+  id            String   @id @default(cuid())
+  stationId     String   @unique @map("station_id")
+  stationName   String   @map("station_name")
+  governorate   String
+  delegation    String
+  address       String?
+  openingTime   String   @default("06:00") @map("opening_time")
+  closingTime   String   @default("22:00") @map("closing_time")
+  isOperational Boolean  @default(true) @map("is_operational")
+  serviceFee    Decimal  @default(0.200) @map("service_fee") @db.Decimal(10, 3)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  
+  @@map("station_config")
+}
+
+// =============== LOCAL STAFF (CACHED) ===============
+
+model Staff {
+  id            String     @id // Same ID as central
+  cin           String     @unique
+  phoneNumber   String     @map("phone_number")
+  firstName     String     @map("first_name")
+  lastName      String     @map("last_name")
+  password      String     // Hashed password
+  role          String     // 'WORKER' or 'SUPERVISOR'
+  isActive      Boolean    @default(true) @map("is_active")
+  lastLogin     DateTime?  @map("last_login")
+  
+  // Relations
+  bookings      Booking[]  @relation("BookingStaff")
+  verifications Booking[]  @relation("VerificationStaff")
+  sessions      Session[]
+  dayPasses     DayPass[]  @relation("DayPassStaff")
+  exitPasses    ExitPass[] @relation("ExitPassStaff")
+  operationLogs OperationLog[]
+  
+  @@map("staff")
+}
+
+// =============== SESSION MANAGEMENT ===============
+
+model Session {
+  id            String    @id @default(cuid())
+  staffId       String    @map("staff_id")
+  token         String    @unique
+  staffData     String    @map("staff_data") // JSON string with staff info
+  isActive      Boolean   @default(true) @map("is_active")
+  lastActivity  DateTime  @default(now()) @map("last_activity")
+  expiresAt     DateTime  @map("expires_at")
+  createdOffline Boolean  @default(false) @map("created_offline")
+  lastOfflineAt DateTime? @map("last_offline_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  staff         Staff     @relation(fields: [staffId], references: [id])
+  
+  @@map("sessions")
+}
+
+// =============== VEHICLES & DRIVERS (LOCAL) ===============
+
+// Driver model removed - simplified to vehicle-only system
+
+model Vehicle {
+  id              String            @id
+  licensePlate    String            @unique @map("license_plate")
+  capacity        Int               @default(8)
+  
+  // Vehicle status
+  isActive        Boolean           @default(true) @map("is_active") // Vehicle is active and operational
+  isAvailable     Boolean           @default(true) @map("is_available") // Available for trips
+  isBanned        Boolean           @default(false) @map("is_banned") // Banned from operation
+  
+  // Default destination for this vehicle
+  defaultDestinationId   String?           @map("default_destination_id") // Primary destination station
+  defaultDestinationName String?           @map("default_destination_name") // Cached name for display
+  
+  // Timestamps
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  
+  // Relations
+  queueEntries        VehicleQueue[]              // Vehicle can be in multiple queues over time
+  authorizedStations  VehicleAuthorizedStation[]  // Stations this vehicle can operate between
+  trips               Trip[]                      // Trips made by this vehicle
+  dayPasses           DayPass[]                   // Day passes for this vehicle
+  exitPasses          ExitPass[]                  // Exit passes for this vehicle
+  
+  // Performance indexes
+  @@index([licensePlate])
+  @@index([isActive, isAvailable])
+  @@index([isBanned])
+  @@map("vehicles")
+}
+
+// Junction table for Vehicle-Station many-to-many relationship (matching central)
+model VehicleAuthorizedStation {
+  id          String   @id @default(cuid())
+  vehicleId   String   @map("vehicle_id")
+  stationId   String   @map("station_id")
+  stationName String?  @map("station_name") // Cached station name for display
+  priority    Int      @default(1) // Route priority (1 = highest priority, 2 = second, etc.)
+  isDefault   Boolean  @default(false) @map("is_default") // Whether this is the default destination
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  
+  // Prevent duplicate entries
+  @@unique([vehicleId, stationId])
+  @@map("vehicle_authorized_stations")
+}
+
+// =============== DESTINATION-BASED QUEUE MANAGEMENT (LOCAL) ===============
+
+model VehicleQueue {
+  id              String      @id // Same ID as central
+  vehicleId       String      @map("vehicle_id")
+  destinationId   String      @map("destination_id")
+  destinationName String      @map("destination_name") // Cached for display (Tunis, Gafsa, etc.)
+  
+  // QUEUE MANAGEMENT
+  queueType       String      @default("REGULAR") // 'OVERNIGHT' or 'REGULAR'
+  queuePosition   Int         @map("queue_position") // Position within THIS destination queue
+  status          String      @default("WAITING") // 'WAITING', 'LOADING', 'READY', 'DEPARTED'
+  enteredAt       DateTime    @map("entered_at")
+  
+  // SCHEDULE & BOOKING INFO (merged from VehicleSchedule)
+  availableSeats  Int         @map("available_seats")    // Seats available for booking
+  totalSeats      Int         @map("total_seats")        // Vehicle capacity
+  basePrice       Float       @map("base_price")         // Price per seat (SQLite REAL)
+  estimatedDeparture DateTime? @map("estimated_departure") // When vehicle plans to leave
+  actualDeparture DateTime?   @map("actual_departure")    // When vehicle actually left
+  
+  // Relations
+  vehicle         Vehicle     @relation(fields: [vehicleId], references: [id])
+  bookings        Booking[]   // Customers book directly on queue entries
+  trips           Trip[]      // Trips that started from this queue entry
+  exitPasses      ExitPass[]  // Exit passes for this queue entry
+  
+  // Performance indexes
+  @@index([destinationId, queueType, status])
+  @@index([vehicleId])
+  @@index([queuePosition])
+  @@index([status, queueType])
+  @@map("vehicle_queue")
+}
+
+// =============== ROUTES & SCHEDULES (LOCAL) ===============
+
+model Route {
+  id                    String            @id
+  stationId             String            @map("station_id")
+  stationName           String            @map("station_name")
+  basePrice             Float             @map("base_price")
+  governorate           String?           // Governorate name
+  governorateAr         String?           @map("governorate_ar") // Governorate name in Arabic
+  delegation            String?           // Delegation name
+  delegationAr          String?           @map("delegation_ar") // Delegation name in Arabic
+  isActive              Boolean           @default(true) @map("is_active")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+  
+  // Relations
+  //schedules             VehicleSchedule[]
+  @@unique([stationId])
+  @@map("routes")
+}
+
+model VehicleSchedule {
+  id                String          @id // Same ID as central
+  vehicleId         String          @map("vehicle_id")
+  routeId           String          @map("route_id")
+  departureTime     DateTime        @map("departure_time")
+  availableSeats    Int             @map("available_seats")
+  totalSeats        Int             @map("total_seats") // Cached for quick display
+  status            String          @default("SCHEDULED") // 'SCHEDULED', 'LOADING', 'DEPARTED'
+  actualDeparture   DateTime?       @map("actual_departure")
+  
+  // Relations
+  //route             Route           @relation(fields: [routeId], references: [id])
+  
+  @@map("vehicle_schedules")
+}
+
+// =============== BOOKINGS (LOCAL) ===============
+
+model Booking {
+  id                String        @id @default(cuid())
+  queueId           String        @map("queue_id") // Reference to VehicleQueue instead of schedule
+  seatsBooked       Int           @map("seats_booked")
+  totalAmount       Float         @map("total_amount")
+  bookingSource     String        @default("CASH_STATION") @map("booking_source") // Only cash bookings
+  bookingType       String        @default("CASH") @map("booking_type") // Only cash bookings
+  
+  // Payment
+  paymentStatus     String        @default("PAID") @map("payment_status") // Always 'PAID' for cash
+  paymentMethod     String        @default("CASH") @map("payment_method") // Always 'CASH'
+  paymentProcessedAt DateTime?    @map("payment_processed_at") // When payment was completed
+  
+  // Verification
+  verificationCode  String        @unique @map("verification_code") // Always generated for identification
+  isVerified        Boolean       @default(false) @map("is_verified")
+  verifiedAt        DateTime?     @map("verified_at")
+  verifiedById      String?       @map("verified_by_id")
+  
+  // Local specific
+  createdOffline    Boolean       @default(false) @map("created_offline")
+  localId           String?       @unique @map("local_id") // For offline-created bookings
+  createdBy         String?       @map("created_by") // Staff ID (required for cash bookings)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  
+  // Relations
+  queue             VehicleQueue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  createdByStaff    Staff?        @relation("BookingStaff", fields: [createdBy], references: [id])
+  verifiedByStaff   Staff?        @relation("VerificationStaff", fields: [verifiedById], references: [id])
+  
+  // Performance indexes
+  @@index([queueId])
+  @@index([verificationCode])
+  @@index([createdBy])
+  @@index([createdAt])
+  @@index([isVerified])
+  @@map("bookings")
+}
+
+
+// =============== LOCAL OPERATIONS LOG ===============
+
+model OperationLog {
+  id          Int      @id @default(autoincrement())
+  staffId     String?  @map("staff_id")
+  operation   String   // 'LOGIN', 'BOOK_TICKET', 'VERIFY_TICKET', 'ADD_VEHICLE'
+  details     String?  // JSON details
+  success     Boolean  @default(true)
+  error       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  staff       Staff?   @relation(fields: [staffId], references: [id])
+  
+  @@map("operation_logs")
+}
+
+// =============== OFFLINE CUSTOMERS (LOCAL ONLY) ===============
+
+model OfflineCustomer {
+  id            Int      @id @default(autoincrement())
+  name          String
+  phone         String?
+  cin           String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  
+  @@map("offline_customers")
+}
+
+// =============== TRIP TRACKING (LOCAL) ===============
+
+model Trip {
+  id                String   @id @default(cuid())
+  vehicleId         String   @map("vehicle_id")
+  licensePlate      String   @map("license_plate")
+  destinationId     String   @map("destination_id")
+  destinationName   String   @map("destination_name")
+  queueId           String   @map("queue_id") // Reference to the queue entry
+  seatsBooked       Int      @map("seats_booked") // Total seats booked for this trip
+  startTime         DateTime @default(now()) @map("start_time") // When the trip started
+  createdAt         DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  vehicle           Vehicle  @relation(fields: [vehicleId], references: [id])
+  queue             VehicleQueue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  
+  @@map("trips")
+}
+
+// =============== DRIVER TICKETS (LOCAL) ===============
+
+// Driver ticket models removed - simplified to vehicle-only system
+
+// =============== DAY PASS SYSTEM ===============
+
+model DayPass {
+  id              String   @id @default(cuid())
+  vehicleId       String   @map("vehicle_id")
+  licensePlate    String   @map("license_plate")
+  price           Float    @default(2.0) // 2 TND per day pass
+  purchaseDate    DateTime @map("purchase_date") // Date when purchased
+  validFrom       DateTime @map("valid_from") // Start of validity (00:00:00)
+  validUntil      DateTime @map("valid_until") // End of validity (23:59:59)
+  isActive        Boolean  @default(true) @map("is_active")
+  isExpired       Boolean  @default(false) @map("is_expired")
+  createdBy       String   @map("created_by") // Staff ID who sold the pass
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id])
+  createdByStaff  Staff    @relation("DayPassStaff", fields: [createdBy], references: [id])
+  
+  @@map("day_passes")
+}
+
+// =============== EXIT PASS SYSTEM ===============
+
+model ExitPass {
+  id                    String   @id @default(cuid())
+  queueId               String?  @map("queue_id") // Reference to the queue entry (nullable to preserve exit pass after queue deletion)
+  vehicleId             String   @map("vehicle_id")
+  licensePlate          String   @map("license_plate")
+  destinationId         String   @map("destination_id")
+  destinationName       String   @map("destination_name")
+  
+  // Current vehicle info
+  currentExitTime       DateTime @map("current_exit_time")
+  
+  // Staff info
+  createdBy             String   @map("created_by") // Staff ID
+  createdAt             DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  queue                 VehicleQueue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  vehicle               Vehicle  @relation(fields: [vehicleId], references: [id])
+  createdByStaff        Staff    @relation("ExitPassStaff", fields: [createdBy], references: [id])
+  
+  @@map("exit_passes")
+}
