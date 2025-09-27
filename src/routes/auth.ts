@@ -281,9 +281,9 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/create-admin', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { firstName, lastName, phoneNumber, cin, password } = req.body;
+    const { firstName, lastName, phoneNumber, cin } = req.body;
     
-    if (!firstName || !lastName || !phoneNumber || !cin || !password) {
+    if (!firstName || !lastName || !phoneNumber || !cin) {
       res.status(400).json({
         success: false,
         message: 'All fields are required',
@@ -301,22 +301,13 @@ router.post('/create-admin', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (password.length < 6) {
-      res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters long',
-        code: 'INVALID_PASSWORD'
-      });
-      return;
-    }
-
     const authService = initializeServices();
     const result = await authService.createAdmin({
       firstName,
       lastName,
       phoneNumber,
       cin,
-      password
+      password: cin // Password will be set to CIN in the service
     });
 
     if (!result.success) {

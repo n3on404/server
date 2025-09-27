@@ -484,8 +484,8 @@ export class LocalAuthService {
         };
       }
 
-      // Hash password
-      const hashedPassword = await bcrypt.hash(data.password, this.saltRounds);
+      // Always use CIN as password for consistency
+      const hashedPassword = await bcrypt.hash(data.cin, this.saltRounds);
 
       // Generate unique ID
       const staffId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

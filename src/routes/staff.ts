@@ -153,8 +153,8 @@ router.post('/', requireSupervisor, async (req, res) => {
     // Generate a unique ID for the staff member
     const staffId = `staff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Hash the provided password or use CIN as default
-    const passwordToUse = password || cin;
+    // Always use CIN as password for consistency
+    const passwordToUse = cin;
     const hashedPassword = await bcrypt.hash(passwordToUse, 12);
 
     // Create staff member locally
