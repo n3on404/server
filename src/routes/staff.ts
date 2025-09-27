@@ -338,15 +338,33 @@ router.get('/report/daily', requireSupervisor, async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: { createdAt: { gte: startOfDay, lt: endOfDay }, createdBy: { not: null } },
       select: {
+        id: true,
         createdBy: true,
         seatsBooked: true,
+        createdAt: true,
+        queue: {
+          select: {
+            destinationName: true,
+            vehicle: {
+              select: {
+                licensePlate: true
+              }
+            }
+          }
+        }
       }
     });
 
     // Fetch day passes grouped by staff
     const dayPasses = await prisma.dayPass.findMany({
       where: { purchaseDate: { gte: startOfDay, lt: endOfDay } },
-      select: { createdBy: true, price: true }
+      select: { 
+        id: true,
+        createdBy: true, 
+        price: true,
+        licensePlate: true,
+        purchaseDate: true
+      }
     });
 
     // Collect staff IDs that have activity
@@ -365,35 +383,74 @@ router.get('/report/daily', requireSupervisor, async (req, res) => {
     });
     const staffMap = new Map(staffList.map(s => [s.id, s]));
 
-    // Aggregate (service fees only for bookings)
-    const staffAgg = new Map<string, { serviceFees: number; dayPass: number; income: number }>();
+    // Aggregate (service fees and day passes)
+    const staffAgg = new Map<string, { 
+      serviceFees: number; 
+      dayPass: number; 
+      income: number;
+      totalBookings: number;
+      totalSeatsBooked: number;
+      totalDayPassesSold: number;
+    }>();
+    
     const ensure = (id: string) => {
-      if (!staffAgg.has(id)) staffAgg.set(id, { serviceFees: 0, dayPass: 0, income: 0 });
+      if (!staffAgg.has(id)) staffAgg.set(id, { 
+        serviceFees: 0, 
+        dayPass: 0, 
+        income: 0,
+        totalBookings: 0,
+        totalSeatsBooked: 0,
+        totalDayPassesSold: 0
+      });
       return staffAgg.get(id)!;
     };
 
+    // Process bookings - calculate service fees (0.200 TND per seat)
     bookings.forEach(b => {
       if (!b.createdBy) return;
       const agg = ensure(b.createdBy);
       const seats = Number(b.seatsBooked || 0);
-      const feeAmt = seats * serviceFee;
-      agg.serviceFees += feeAmt;
-      agg.income += feeAmt;
+      const serviceFeeAmount = seats * 0.200; // Fixed 0.200 TND per seat
+      
+      agg.serviceFees += serviceFeeAmount;
+      agg.income += serviceFeeAmount;
+      agg.totalBookings += 1;
+      agg.totalSeatsBooked += seats;
     });
 
+    // Process day passes - each day pass is 2 TND
     dayPasses.forEach(dp => {
       if (!dp.createdBy) return;
       const agg = ensure(dp.createdBy);
-      const amt = Number(dp.price || 0);
-      agg.dayPass += amt;
-      agg.income += amt;
+      const dayPassAmount = 2; // Fixed 2 TND per day pass
+      
+      agg.dayPass += dayPassAmount;
+      agg.income += dayPassAmount;
+      agg.totalDayPassesSold += 1;
     });
 
     const result = Array.from(staffAgg.entries()).map(([id, agg]) => {
       const s = staffMap.get(id)!;
       return {
-        staff: { id: s.id, cin: s.cin, firstName: s.firstName, lastName: s.lastName, role: s.role },
-        totals: { serviceFees: agg.serviceFees, dayPass: agg.dayPass, income: agg.income, serviceFeeRate: serviceFee },
+        staff: { 
+          id: s.id, 
+          cin: s.cin, 
+          firstName: s.firstName, 
+          lastName: s.lastName, 
+          role: s.role 
+        },
+        totals: { 
+          serviceFees: agg.serviceFees, 
+          dayPass: agg.dayPass, 
+          income: agg.income, 
+          serviceFeeRate: 0.200 // Fixed service fee rate
+        },
+        summary: {
+          totalBookings: agg.totalBookings,
+          totalSeatsBooked: agg.totalSeatsBooked,
+          totalDayPassesSold: agg.totalDayPassesSold,
+          averageServiceFeePerSeat: agg.totalSeatsBooked > 0 ? agg.serviceFees / agg.totalSeatsBooked : 0
+        }
       };
     });
 
@@ -465,10 +522,7 @@ router.get('/:id/transactions', requireSupervisor, async (req, res) => {
     const dayPasses = await prisma.dayPass.findMany({
       where: {
         purchaseDate: { gte: startOfDay, lt: endOfDay },
-        OR: [
-          { createdBy: id },
-          { createdByStaff: { cin: staff.cin } },
-        ],
+        createdBy: id,
       },
       select: {
         id: true,
@@ -482,11 +536,11 @@ router.get('/:id/transactions', requireSupervisor, async (req, res) => {
     // Calculate detailed breakdown for each booking (focus on service fees only)
     const enhancedBookings = bookings.map(booking => {
       const seatsBooked = booking.seatsBooked;
-      const serviceFeeAmount = seatsBooked * serviceFee;
+      const serviceFeeAmount = seatsBooked * 0.200; // Fixed 0.200 TND per seat
 
       return {
         ...booking,
-        serviceFee,
+        serviceFee: 0.200,
         serviceFeeAmount,
         vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || 'N/A',
         destinationName: booking.queue?.destinationName || 'N/A'
@@ -495,13 +549,13 @@ router.get('/:id/transactions', requireSupervisor, async (req, res) => {
 
     // Calculate totals (only service fees and day passes)
     const totalServiceFees = enhancedBookings.reduce((sum, b) => sum + (b.serviceFeeAmount || 0), 0);
-    const totalDayPasses = dayPasses.reduce((sum, p) => sum + (p.price || 0), 0);
+    const totalDayPasses = dayPasses.length * 2; // Fixed 2 TND per day pass
     const totalIncome = totalServiceFees + totalDayPasses;
 
     // Calculate work timeline
     const allTransactions = [
       ...enhancedBookings.map(b => ({ type: 'booking', time: b.createdAt, amount: b.serviceFeeAmount, serviceFee: b.serviceFeeAmount })),
-      ...dayPasses.map(d => ({ type: 'daypass', time: d.purchaseDate, amount: d.price, serviceFee: 0 }))
+      ...dayPasses.map(d => ({ type: 'daypass', time: d.purchaseDate, amount: 2, serviceFee: 0 })) // Fixed 2 TND per day pass
     ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
     const workStartTime = allTransactions.length > 0 ? allTransactions[0].time : null;
@@ -539,7 +593,7 @@ router.get('/:id/transactions', requireSupervisor, async (req, res) => {
           totalServiceFees,
           totalDayPasses,
           totalIncome,
-          serviceFeeRate: serviceFee
+          serviceFeeRate: 0.200 // Fixed service fee rate
         },
         items: {
           bookings: enhancedBookings,
