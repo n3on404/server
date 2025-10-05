@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import bcrypt from 'bcrypt';
 import { authenticate, requireSupervisor, requireCentralConnection } from '../middleware/auth';
 import prisma from '../config/database';
 import { randomUUID } from 'crypto';
@@ -152,12 +151,8 @@ router.post('/', requireSupervisor, async (req, res) => {
 
     // Generate a unique ID for the staff member
     const staffId = `staff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Always use CIN as password for consistency
-    const passwordToUse = cin;
-    const hashedPassword = await bcrypt.hash(passwordToUse, 12);
 
-    // Create staff member locally
+    // Create staff member locally (no password needed - CIN only authentication)
     const created = await prisma.staff.create({
       data: {
         id: staffId,
@@ -165,7 +160,6 @@ router.post('/', requireSupervisor, async (req, res) => {
         firstName,
         lastName,
         phoneNumber,
-        password: hashedPassword,
         role: role.toUpperCase(),
         isActive: true
       }

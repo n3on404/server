@@ -36,7 +36,6 @@ model Staff {
   phoneNumber   String     @map("phone_number")
   firstName     String     @map("first_name")
   lastName      String     @map("last_name")
-  password      String     // Hashed password
   role          String     // 'WORKER' or 'SUPERVISOR'
   isActive      Boolean    @default(true) @map("is_active")
   lastLogin     DateTime?  @map("last_login")
@@ -80,6 +79,7 @@ model Vehicle {
   id              String            @id
   licensePlate    String            @unique @map("license_plate")
   capacity        Int               @default(8)
+  phoneNumber     String?           @map("phone_number")
   
   // Vehicle status
   isActive        Boolean           @default(true) @map("is_active") // Vehicle is active and operational

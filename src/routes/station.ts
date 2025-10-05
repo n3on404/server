@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { getStationConfig, updateStationConfig } from '../controllers/stationController';
-import { TunisiaDataService } from '../utils/tunisiaData';
 
 const router = Router();
 
@@ -10,15 +9,12 @@ router.get('/config', getStationConfig);
 // Update station configuration
 router.put('/config', updateStationConfig);
 
-// Get all governorates (public endpoint)
+// Get all governorates (public endpoint) - Returns empty data
 router.get('/governorates', (req, res) => {
   try {
-    const tunisiaData = TunisiaDataService.getInstance();
-    const governorates = tunisiaData.getAllGovernorates();
-    
     res.json({
       success: true,
-      data: governorates
+      data: []
     });
   } catch (error) {
     console.error('Error fetching governorates:', error);
@@ -29,24 +25,12 @@ router.get('/governorates', (req, res) => {
   }
 });
 
-// Get delegations by governorate (public endpoint)
+// Get delegations by governorate (public endpoint) - Returns empty data
 router.get('/delegations/:governorate', (req, res) => {
   try {
-    const { governorate } = req.params;
-    const tunisiaData = TunisiaDataService.getInstance();
-    const delegations = tunisiaData.getDelegationsByGovernorate(governorate);
-    
-    if (delegations.length === 0) {
-      res.status(404).json({
-        success: false,
-        message: 'Governorate not found'
-      });
-      return;
-    }
-    
     res.json({
       success: true,
-      data: delegations
+      data: []
     });
   } catch (error) {
     console.error('Error fetching delegations:', error);
@@ -57,15 +41,12 @@ router.get('/delegations/:governorate', (req, res) => {
   }
 });
 
-// Get all governorates with their delegations (public endpoint)
+// Get all governorates with their delegations (public endpoint) - Returns empty data
 router.get('/locations', (req, res) => {
   try {
-    const tunisiaData = TunisiaDataService.getInstance();
-    const governoratesData = tunisiaData.getGovernoratesData();
-    
     res.json({
       success: true,
-      data: governoratesData
+      data: []
     });
   } catch (error) {
     console.error('Error fetching locations:', error);

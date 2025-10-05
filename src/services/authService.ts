@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
 import { getRedisService } from './redisService';
 import { REDIS_KEYS, CACHE_TTL } from '../config/redisConfig';
 
@@ -22,37 +21,27 @@ export interface TokenPayload {
 
 export class LocalAuthService {
   private jwtSecret: string;
-  private saltRounds: number = 12;
 
   constructor() {
     this.jwtSecret = '125169cc5d865676c9b13ec2df5926cc942ff45e84eb931d6e2cef2940f8efbc';
   }
 
   /**
-   * Hash CIN to use as default password
+   * Login with CIN only (no password required)
    */
-  private async hashCinPassword(cin: string): Promise<string> {
-    return await bcrypt.hash(cin, this.saltRounds);
-  }
-
-  /**
-   * Login with CIN and password
-   */
-  async login(cin: string, password: string): Promise<LoginResponse> {
+  async login(cin: string): Promise<LoginResponse> {
     try {
       console.log(`🔐 Attempting login for CIN: ${cin}`);
 
-      // First try local authentication
-      const localResult = await this.loginLocally(cin, password);
+      // Use local authentication only
+      const localResult = await this.loginLocally(cin);
       if (localResult.success) {
         return localResult;
       }
 
-      // Central server connection removed - using local authentication only
-
       return {
         success: false,
-        message: 'Invalid CIN or password'
+        message: 'Invalid CIN'
       };
 
     } catch (error) {
@@ -73,9 +62,9 @@ export class LocalAuthService {
   }
 
   /**
-   * Login using local database with Redis session management
+   * Login using local database with Redis session management (CIN only)
    */
-  private async loginLocally(cin: string, password: string): Promise<LoginResponse> {
+  private async loginLocally(cin: string): Promise<LoginResponse> {
     try {
       const redis = getRedisService();
       
@@ -97,19 +86,12 @@ export class LocalAuthService {
       if (!staff || !staff.isActive) {
         return {
           success: false,
-          message: 'Invalid CIN or password'
+          message: 'Invalid CIN'
         };
       }
 
-      // Verify password
-      const isValidPassword = await bcrypt.compare(password, staff.password);
-
-      if (!isValidPassword) {
-        return {
-          success: false,
-          message: 'Invalid CIN or password'
-        };
-      }
+      // No password verification needed - CIN is sufficient
+      console.log(`✅ CIN verification successful for: ${staff.firstName} ${staff.lastName}`);
 
       // Create JWT token
       const tokenPayload: TokenPayload = {
@@ -255,7 +237,6 @@ export class LocalAuthService {
           firstName: staff.firstName,
           lastName: staff.lastName,
           phoneNumber: staff.phoneNumber,
-          password: staff.password || await this.hashCinPassword(staff.cin), // CIN as default password
           role: staff.role,
           isActive: true,
           lastLogin: new Date(),
@@ -266,7 +247,6 @@ export class LocalAuthService {
           firstName: staff.firstName,
           lastName: staff.lastName,
           phoneNumber: staff.phoneNumber,
-          password: staff.password || await this.hashCinPassword(staff.cin), // CIN as default password
           role: staff.role,
           isActive: true,
           lastLogin: new Date(),
@@ -394,68 +374,13 @@ export class LocalAuthService {
   }
 
   /**
-   * Change staff password
-   */
-  async changePassword(staffId: string, currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
-    try {
-      console.log(`🔒 Changing password for staff: ${staffId}`);
-
-      // Get staff with current password
-      const staff = await prisma.staff.findUnique({
-        where: { id: staffId }
-      });
-
-      if (!staff) {
-        return {
-          success: false,
-          message: 'Staff member not found'
-        };
-      }
-
-      // Verify current password
-      const isValidPassword = await bcrypt.compare(currentPassword, staff.password);
-
-      if (!isValidPassword) {
-        return {
-          success: false,
-          message: 'Current password is incorrect'
-        };
-      }
-
-      // Hash new password
-      const hashedNewPassword = await bcrypt.hash(newPassword, this.saltRounds);
-
-      // Update password
-      await prisma.staff.update({
-        where: { id: staffId },
-        data: { password: hashedNewPassword }
-      });
-
-      console.log(`✅ Password changed successfully for staff: ${staffId}`);
-
-      return {
-        success: true,
-        message: 'Password changed successfully'
-      };
-
-    } catch (error) {
-      console.error('❌ Error changing password:', error);
-      return {
-        success: false,
-        message: 'Failed to change password'
-      };
-    }
-  }
-
-  /**
-   * Create admin account (for initial setup)
+   * Create admin account (for initial setup) - CIN only authentication
    */
   async createAdmin(data: {
     firstName: string;
     lastName: string;
     phoneNumber: string;
     cin: string;
-    password: string;
   }): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`🔐 Creating admin account for CIN: ${data.cin}`);
@@ -484,13 +409,10 @@ export class LocalAuthService {
         };
       }
 
-      // Always use CIN as password for consistency
-      const hashedPassword = await bcrypt.hash(data.cin, this.saltRounds);
-
       // Generate unique ID
       const staffId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Create admin
+      // Create admin (no password needed - CIN only authentication)
       const admin = await prisma.staff.create({
         data: {
           id: staffId,
@@ -498,7 +420,6 @@ export class LocalAuthService {
           firstName: data.firstName,
           lastName: data.lastName,
           phoneNumber: data.phoneNumber,
-          password: hashedPassword,
           role: 'ADMIN',
           isActive: true
         }

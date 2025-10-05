@@ -10,10 +10,10 @@ const initializeServices = () => {
   return getAuthService();
 };
 
-// Login with CIN and password
+// Login with CIN only (no password required)
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { cin, password } = req.body;
+    const { cin } = req.body;
     
     if (!cin || typeof cin !== 'string' || cin.length !== 8) {
       res.status(400).json({
@@ -24,20 +24,11 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters long',
-        code: 'INVALID_PASSWORD'
-      });
-      return;
-    }
-
     const authService = initializeServices();
 
     console.log(`🔐 Processing login request for CIN: ${cin}`);
 
-    const result = await authService.login(cin, password);
+    const result = await authService.login(cin);
 
     if (!result.success) {
       res.status(400).json({
@@ -56,80 +47,6 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('❌ Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      code: 'INTERNAL_ERROR'
-    });
-  }
-});
-
-// Change password
-router.post('/change-password', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    
-    if (!currentPassword || !newPassword) {
-      res.status(400).json({
-        success: false,
-        message: 'Current password and new password are required',
-        code: 'MISSING_PASSWORDS'
-      });
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      res.status(400).json({
-        success: false,
-        message: 'New password must be at least 6 characters long',
-        code: 'WEAK_PASSWORD'
-      });
-      return;
-    }
-
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
-    
-    if (!token) {
-      res.status(401).json({
-        success: false,
-        message: 'Authentication required',
-        code: 'AUTH_REQUIRED'
-      });
-      return;
-    }
-
-    const authService = initializeServices();
-    
-    // Verify token first
-    const tokenResult = await authService.verifyToken(token);
-    if (!tokenResult.valid || !tokenResult.staff) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token',
-        code: 'INVALID_TOKEN'
-      });
-      return;
-    }
-
-    // Change password
-    const result = await authService.changePassword(tokenResult.staff.id, currentPassword, newPassword);
-
-    if (!result.success) {
-      res.status(400).json({
-        success: false,
-        message: result.message,
-        code: 'PASSWORD_CHANGE_FAILED'
-      });
-      return;
-    }
-
-    res.json({
-      success: true,
-      message: result.message
-    });
-  } catch (error) {
-    console.error('❌ Change password error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -306,8 +223,7 @@ router.post('/create-admin', async (req: Request, res: Response): Promise<void> 
       firstName,
       lastName,
       phoneNumber,
-      cin,
-      password: cin // Password will be set to CIN in the service
+      cin
     });
 
     if (!result.success) {
