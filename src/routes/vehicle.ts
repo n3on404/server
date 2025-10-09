@@ -116,7 +116,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/', authenticate, requireSupervisor, invalidateVehiclesCache(), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { licensePlate, capacity = 8, defaultDestinationId, defaultDestinationName } = req.body;
+    const { licensePlate, capacity = 8, phoneNumber, defaultDestinationId, defaultDestinationName } = req.body;
     
     // Validate required fields
     if (!licensePlate) {
@@ -146,6 +146,7 @@ router.post('/', authenticate, requireSupervisor, invalidateVehiclesCache(), asy
         id: `vehicle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         licensePlate,
         capacity: parseInt(capacity),
+        phoneNumber: phoneNumber || null,
         defaultDestinationId,
         defaultDestinationName,
         isActive: true,
@@ -179,12 +180,13 @@ router.post('/', authenticate, requireSupervisor, invalidateVehiclesCache(), asy
 router.put('/:id', authenticate, requireSupervisor, invalidateVehiclesCache(), async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { capacity, defaultDestinationId, defaultDestinationName, isActive, isAvailable, isBanned } = req.body;
+    const { capacity, phoneNumber, defaultDestinationId, defaultDestinationName, isActive, isAvailable, isBanned } = req.body;
     
     const vehicle = await prisma.vehicle.update({
       where: { id },
       data: {
         ...(capacity && { capacity: parseInt(capacity) }),
+        ...(phoneNumber !== undefined && { phoneNumber }),
         ...(defaultDestinationId && { defaultDestinationId }),
         ...(defaultDestinationName && { defaultDestinationName }),
         ...(isActive !== undefined && { isActive }),

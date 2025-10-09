@@ -32,6 +32,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { cronService } from './services/cronService';
 import { getRedisService } from './services/redisService';
 import { getMQTTService } from './services/mqttService';
+import { getEventBusService } from './services/eventBusService';
 
 import * as dashboardController from './controllers/dashboardController';
 
@@ -99,13 +100,17 @@ const startServer = async () => {
       console.log('✅ Redis connection successful');
     }
 
-    // Initialize MQTT service
+    // Initialize MQTT service (kept optional); will be deprecated in favor of PG events
     const mqttService = getMQTTService();
-    const isMQTTConnected = await mqttService.connect();
-    if (!isMQTTConnected) {
-      console.warn('⚠️ Failed to connect to MQTT broker - continuing without real-time updates');
-    } else {
-      console.log('✅ MQTT broker connection successful');
+    await mqttService.connect().catch(() => {
+      console.warn('⚠️ MQTT broker unavailable - using Postgres events');
+    });
+
+    // Initialize Postgres LISTEN/NOTIFY event bus
+    const eventBus = getEventBusService();
+    const isBusConnected = await eventBus.connect();
+    if (!isBusConnected) {
+      console.warn('⚠️ Failed to start PG event bus - SSE will be inactive');
     }
 
     // Initialize cron service for scheduled tasks
@@ -145,6 +150,10 @@ const startServer = async () => {
     // Analytics routes
     app.use('/api/analytics', analyticsRoutes);
 
+    // Supervisor SSE routes
+    const supervisorRoutes = (await import('./routes/supervisor')).default;
+    app.use('/api/supervisor', supervisorRoutes);
+
     // 404 handler - add after all routes
     app.use(notFound);
 
@@ -180,6 +189,9 @@ const startServer = async () => {
         // Close MQTT connection
         await mqttService.disconnect();
         console.log('📡 MQTT broker connection closed');
+
+        // Close PG event bus
+        await eventBus.disconnect();
         
         // Close database connection
         await import('./config/database').then(db => db.prisma.$disconnect());
