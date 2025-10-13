@@ -43,6 +43,7 @@ model Staff {
   // Relations
   bookings      Booking[]  @relation("BookingStaff")
   verifications Booking[]  @relation("VerificationStaff")
+  cancelledBookings Booking[] @relation("CancelledByStaff")
   sessions      Session[]
   dayPasses     DayPass[]  @relation("DayPassStaff")
   exitPasses    ExitPass[] @relation("ExitPassStaff")
@@ -134,9 +135,13 @@ model VehicleQueue {
   destinationId   String      @map("destination_id")
   destinationName String      @map("destination_name") // Cached for display (Tunis, Gafsa, etc.)
   
+  // SUB-ROUTE MANAGEMENT (NEW)
+  subRoute        String?     @map("sub_route") // 'BOUHJAR', 'SAYADA', 'HALKOM', 'REGULAR', etc.
+  subRouteName    String?     @map("sub_route_name") // Display name for sub-route
+  
   // QUEUE MANAGEMENT
   queueType       String      @default("REGULAR") // 'OVERNIGHT' or 'REGULAR'
-  queuePosition   Int         @map("queue_position") // Position within THIS destination queue
+  queuePosition   Int         @map("queue_position") // Position within THIS destination/sub-route queue
   status          String      @default("WAITING") // 'WAITING', 'LOADING', 'READY', 'DEPARTED'
   enteredAt       DateTime    @map("entered_at")
   
@@ -155,6 +160,7 @@ model VehicleQueue {
   
   // Performance indexes
   @@index([destinationId, queueType, status])
+  @@index([destinationId, subRoute, status]) // NEW: Index for sub-route queries
   @@index([vehicleId])
   @@index([queuePosition])
   @@index([status, queueType])
@@ -201,11 +207,18 @@ model VehicleSchedule {
 
 model Booking {
   id                String        @id @default(cuid())
-  queueId           String        @map("queue_id") // Reference to VehicleQueue instead of schedule
+  queueId           String?       @map("queue_id") // Reference to VehicleQueue instead of schedule; nullable to preserve booking history
   seatsBooked       Int           @map("seats_booked")
   totalAmount       Float         @map("total_amount")
   bookingSource     String        @default("CASH_STATION") @map("booking_source") // Only cash bookings
   bookingType       String        @default("CASH") @map("booking_type") // Only cash bookings
+  
+  // SUB-ROUTE INFORMATION (NEW)
+  subRoute          String?       @map("sub_route") // Sub-route for this booking
+  subRouteName      String?       @map("sub_route_name") // Display name for sub-route
+  
+  // Booking Status - NEW FIELD
+  bookingStatus     String        @default("ACTIVE") @map("booking_status") // 'ACTIVE', 'CANCELLED', 'COMPLETED', 'REFUNDED'
   
   // Payment
   paymentStatus     String        @default("PAID") @map("payment_status") // Always 'PAID' for cash
@@ -218,16 +231,24 @@ model Booking {
   verifiedAt        DateTime?     @map("verified_at")
   verifiedById      String?       @map("verified_by_id")
   
+  // Cancellation tracking - NEW FIELDS
+  cancelledAt       DateTime?     @map("cancelled_at") // When booking was cancelled
+  cancelledBy       String?       @map("cancelled_by") // Staff ID who cancelled
+  cancellationReason String?      @map("cancellation_reason") // Reason for cancellation
+  refundAmount      Float?        @map("refund_amount") // Amount refunded
+  
   // Local specific
   createdOffline    Boolean       @default(false) @map("created_offline")
   localId           String?       @unique @map("local_id") // For offline-created bookings
   createdBy         String?       @map("created_by") // Staff ID (required for cash bookings)
   createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
   
   // Relations
-  queue             VehicleQueue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  queue             VehicleQueue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
   createdByStaff    Staff?        @relation("BookingStaff", fields: [createdBy], references: [id])
   verifiedByStaff   Staff?        @relation("VerificationStaff", fields: [verifiedById], references: [id])
+  cancelledByStaff  Staff?        @relation("CancelledByStaff", fields: [cancelledBy], references: [id])
   
   // Performance indexes
   @@index([queueId])
@@ -235,6 +256,8 @@ model Booking {
   @@index([createdBy])
   @@index([createdAt])
   @@index([isVerified])
+  @@index([bookingStatus]) // NEW INDEX
+  @@index([cancelledAt]) // NEW INDEX
   @@map("bookings")
 }
 

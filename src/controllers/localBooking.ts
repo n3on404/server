@@ -320,9 +320,9 @@ export class LocalBookingController {
               createdAt: booking.createdAt
             },
             vehicle: {
-              licensePlate: booking.queue.vehicle.licensePlate,
-              queuePosition: booking.queue.queuePosition,
-              estimatedDeparture: booking.queue.estimatedDeparture
+              licensePlate: booking.queue?.vehicle?.licensePlate || '—',
+              queuePosition: booking.queue?.queuePosition ?? 0,
+              estimatedDeparture: booking.queue?.estimatedDeparture || null
             },
             alreadyVerified: true
           }
@@ -371,8 +371,8 @@ export class LocalBookingController {
         totalAmount: verifiedBooking.totalAmount,
         seatsBooked: verifiedBooking.seatsBooked,
         vehicle: {
-          licensePlate: verifiedBooking.queue.vehicle.licensePlate,
-          destination: verifiedBooking.queue.destinationName
+          licensePlate: verifiedBooking.queue?.vehicle?.licensePlate || '—',
+          destination: verifiedBooking.queue?.destinationName || '—'
         },
         source: 'ticket_verification'
       });
@@ -392,9 +392,9 @@ export class LocalBookingController {
             createdAt: verifiedBooking.createdAt
           },
           vehicle: {
-            licensePlate: verifiedBooking.queue.vehicle.licensePlate,
-            queuePosition: verifiedBooking.queue.queuePosition,
-            estimatedDeparture: verifiedBooking.queue.estimatedDeparture
+            licensePlate: verifiedBooking.queue?.vehicle?.licensePlate || '—',
+            queuePosition: verifiedBooking.queue?.queuePosition ?? 0,
+            estimatedDeparture: verifiedBooking.queue?.estimatedDeparture || null
           },
           staff: verifiedBooking.verifiedByStaff,
           verificationTimestamp: verifiedBooking.verifiedAt
@@ -471,9 +471,9 @@ export class LocalBookingController {
             paymentProcessedAt: booking.paymentProcessedAt
           },
           vehicle: {
-            licensePlate: booking.queue.vehicle.licensePlate,
-            queuePosition: booking.queue.queuePosition,
-            estimatedDeparture: booking.queue.estimatedDeparture
+            licensePlate: booking.queue?.vehicle?.licensePlate || '—',
+            queuePosition: booking.queue?.queuePosition ?? 0,
+            estimatedDeparture: booking.queue?.estimatedDeparture || null
           },
           staff: booking.verifiedByStaff,
           statusFlow: {
@@ -693,18 +693,20 @@ export class LocalBookingController {
         });
 
         // If payment successful, update vehicle seat availability
-        if (status === 'PAID' && booking.queue.vehicle) {
+        if (status === 'PAID' && booking.queue?.vehicle) {
           const vehicle = booking.queue.vehicle;
           
           console.log(`✅ Confirming ${booking.seatsBooked} seats for vehicle ${vehicle.licensePlate}`);
 
           // Update the vehicle queue availability
-          await tx.vehicleQueue.update({
-            where: { id: booking.queueId },
-            data: {
-              availableSeats: Math.max(0, booking.queue.availableSeats - booking.seatsBooked)
-            }
-          });
+          if (booking.queueId) {
+            await tx.vehicleQueue.update({
+              where: { id: booking.queueId },
+              data: {
+                availableSeats: Math.max(0, (booking.queue?.availableSeats ?? 0) - booking.seatsBooked)
+              }
+            });
+          }
 
           // Note: Status will be updated automatically after transaction by calling updateVehicleStatusBasedOnBookings
 
@@ -715,7 +717,7 @@ export class LocalBookingController {
       });
 
       // Update vehicle status based on payment confirmation (outside transaction to avoid conflicts)
-      if (status === 'PAID' && updatedBooking.queue) {
+      if (status === 'PAID' && updatedBooking.queue && updatedBooking.queueId) {
         try {
           const { createQueueService } = await import('../services/queueService');
           const queueService = createQueueService();
@@ -736,8 +738,8 @@ export class LocalBookingController {
         isVerified: updatedBooking.isVerified,
         verifiedAt: updatedBooking.verifiedAt,
         vehicle: updatedBooking.queue ? {
-          licensePlate: updatedBooking.queue.vehicle.licensePlate,
-          destination: updatedBooking.queue.destinationName,
+          licensePlate: updatedBooking.queue?.vehicle?.licensePlate || '—',
+          destination: updatedBooking.queue?.destinationName || '—',
           seatsBooked: updatedBooking.seatsBooked
         } : null,
         source: 'payment_confirmation'

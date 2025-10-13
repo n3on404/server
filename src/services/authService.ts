@@ -29,12 +29,12 @@ export class LocalAuthService {
   /**
    * Login with CIN only (no password required)
    */
-  async login(cin: string): Promise<LoginResponse> {
+  async login(cin: string, route?: string): Promise<LoginResponse> {
     try {
-      console.log(`🔐 Attempting login for CIN: ${cin}`);
+      console.log(`🔐 Attempting login for CIN: ${cin}, Route: ${route}`);
 
       // Use local authentication only
-      const localResult = await this.loginLocally(cin);
+      const localResult = await this.loginLocally(cin, route);
       if (localResult.success) {
         return localResult;
       }
@@ -64,7 +64,7 @@ export class LocalAuthService {
   /**
    * Login using local database with Redis session management (CIN only)
    */
-  private async loginLocally(cin: string): Promise<LoginResponse> {
+  private async loginLocally(cin: string, route?: string): Promise<LoginResponse> {
     try {
       const redis = getRedisService();
       
@@ -118,7 +118,8 @@ export class LocalAuthService {
         role: staff.role,
         phoneNumber: staff.phoneNumber,
         lastLogin: new Date().toISOString(),
-        loginTime: new Date().toISOString()
+        loginTime: new Date().toISOString(),
+        selectedRoute: route || null
       };
 
       if (redis.getConnectionStatus()) {
@@ -152,7 +153,8 @@ export class LocalAuthService {
           firstName: staff.firstName,
           lastName: staff.lastName,
           role: staff.role,
-          phoneNumber: staff.phoneNumber
+          phoneNumber: staff.phoneNumber,
+          selectedRoute: route || null
         }
       };
 

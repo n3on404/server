@@ -13,7 +13,7 @@ const initializeServices = () => {
 // Login with CIN only (no password required)
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { cin } = req.body;
+    const { cin, route } = req.body;
     
     if (!cin || typeof cin !== 'string' || cin.length !== 8) {
       res.status(400).json({
@@ -26,9 +26,9 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const authService = initializeServices();
 
-    console.log(`🔐 Processing login request for CIN: ${cin}`);
+    console.log(`🔐 Processing login request for CIN: ${cin}, Route: ${route}`);
 
-    const result = await authService.login(cin);
+    const result = await authService.login(cin, route);
 
     if (!result.success) {
       res.status(400).json({

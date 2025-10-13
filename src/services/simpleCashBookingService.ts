@@ -31,7 +31,7 @@ export interface SimpleCashBookingResult {
 
 export interface SimpleCashBooking {
   id: string;
-  queueId: string;
+  queueId: string | null;
   vehicleLicensePlate: string; // Vehicle number plate
   destinationName: string;
   destinationStationId: string; // Destination station ID
@@ -333,7 +333,9 @@ export class SimpleCashBookingService {
         try {
           const { createQueueService } = await import('./queueService');
           const queueService = createQueueService();
-          await queueService.updateVehicleStatusBasedOnBookings(booking.queueId);
+          if (booking.queueId) {
+            await queueService.updateVehicleStatusBasedOnBookings(booking.queueId);
+          }
         } catch (error) {
           console.error('❌ Error updating vehicle status after booking:', error);
         }
@@ -341,13 +343,17 @@ export class SimpleCashBookingService {
 
       // Create trip records for fully booked vehicles (outside transaction to avoid conflicts)
       for (const booking of result.bookings) {
-        const queueInfo = await prisma.vehicleQueue.findUnique({
-          where: { id: booking.queueId },
-          include: { vehicle: true }
-        });
+        const queueInfo = booking.queueId
+          ? await prisma.vehicleQueue.findUnique({
+              where: { id: booking.queueId },
+              include: { vehicle: true }
+            })
+          : null;
         
         if (queueInfo && queueInfo.status === 'READY' && queueInfo.availableSeats === 0) {
-          await this.createTripRecord(booking.queueId, queueInfo);
+          if (booking.queueId) {
+            await this.createTripRecord(booking.queueId, queueInfo);
+          }
         }
       }
 
@@ -464,13 +470,13 @@ export class SimpleCashBookingService {
       // Find the route to get correct pricing
       const route = await prisma.route.findFirst({
         where: {
-          stationId: updatedBooking.queue.destinationId,
+          stationId: updatedBooking.queue?.destinationId || '',
           isActive: true
         }
       });
 
       // Use route price if available, otherwise fall back to queue basePrice
-      const pricePerSeat = route?.basePrice || updatedBooking.queue.basePrice;
+      const pricePerSeat = route?.basePrice || updatedBooking.queue?.basePrice || 0;
       
       // Calculate breakdown from existing data
       const baseAmount = updatedBooking.seatsBooked * pricePerSeat;
@@ -479,9 +485,9 @@ export class SimpleCashBookingService {
       const cashBooking: SimpleCashBooking = {
         id: updatedBooking.id,
         queueId: updatedBooking.queueId,
-        vehicleLicensePlate: updatedBooking.queue.vehicle.licensePlate,
-        destinationName: updatedBooking.queue.destinationName,
-        destinationStationId: updatedBooking.queue.destinationId,
+        vehicleLicensePlate: updatedBooking.queue?.vehicle?.licensePlate || '—',
+        destinationName: updatedBooking.queue?.destinationName || '—',
+        destinationStationId: updatedBooking.queue?.destinationId || '',
         startStationId: startStationId,
         startStationName: stationConfig?.stationName || 'Local Station',
         seatsBooked: updatedBooking.seatsBooked,
@@ -493,8 +499,8 @@ export class SimpleCashBookingService {
         ticketId: updatedBooking.verificationCode,
         bookingTime: new Date(),
         createdAt: updatedBooking.createdAt,
-        queuePosition: updatedBooking.queue.queuePosition,
-        estimatedDeparture: updatedBooking.queue.estimatedDeparture
+        queuePosition: updatedBooking.queue?.queuePosition ?? 0,
+        estimatedDeparture: updatedBooking.queue?.estimatedDeparture || null
       };
 
       console.log(`✅ Cash ticket verified: ${ticketId}`);

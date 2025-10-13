@@ -259,8 +259,8 @@ export const getDashboardBookings = async (req: Request, res: Response) => {
 
     const bookingData = recentBookings.map(booking => ({
       id: booking.id,
-      vehicleLicensePlate: booking.queue.vehicle.licensePlate,
-      destinationName: booking.queue.destinationName,
+      vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || '—',
+      destinationName: booking.queue?.destinationName || '—',
       seatsBooked: booking.seatsBooked,
       totalAmount: booking.totalAmount,
       bookingType: booking.bookingType,
@@ -352,19 +352,21 @@ export const getActivityLog = async (req: Request, res: Response) => {
 
     // Add booking activities
     recentBookings.forEach(booking => {
+      const destName = booking.queue?.destinationName || '—';
+      const plate = booking.queue?.vehicle?.licensePlate || '—';
       activities.push({
         id: `booking-${booking.id}`,
         type: 'booking',
         action: 'BOOKING_CREATED',
-        description: `Nouvelle réservation de ${booking.seatsBooked} place(s) pour ${booking.queue.destinationName} (${booking.queue.vehicle.licensePlate})`,
+        description: `Nouvelle réservation de ${booking.seatsBooked} place(s) pour ${destName} (${plate})`,
         timestamp: booking.createdAt,
         staffName: booking.createdByStaff ? 
           `${booking.createdByStaff.firstName} ${booking.createdByStaff.lastName}` : 
           'System',
       success: true,
         details: {
-          vehicleLicensePlate: booking.queue.vehicle.licensePlate,
-          destinationName: booking.queue.destinationName,
+          vehicleLicensePlate: plate,
+          destinationName: destName,
           seatsBooked: booking.seatsBooked,
           totalAmount: booking.totalAmount,
           bookingType: booking.bookingType,
@@ -502,8 +504,8 @@ export const getSupervisorDashboard = async (req: Request, res: Response) => {
 
     const transactions = recentTransactions.map(booking => ({
       id: booking.id,
-      destinationName: booking.queue.destinationName,
-      vehicleLicensePlate: booking.queue.vehicle.licensePlate,
+      destinationName: booking.queue?.destinationName || '—',
+      vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || '—',
       seatsBooked: booking.seatsBooked,
       amount: booking.totalAmount,
       bookingType: booking.bookingType,

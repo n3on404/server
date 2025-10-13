@@ -53,7 +53,7 @@ export interface ExitPassSummary {
 
 export interface QueueBooking {
   id: string;
-  queueId: string;
+  queueId: string | null;
   vehicleLicensePlate: string;
   destinationName: string;
   startStationName: string; // Add current station name
@@ -249,8 +249,8 @@ export class QueueBookingService {
         const formattedBookings: QueueBooking[] = createdBookings.map(booking => ({
           id: booking.id,
           queueId: booking.queueId,
-          vehicleLicensePlate: booking.queue.vehicle.licensePlate,
-          destinationName: booking.queue.destinationName,
+          vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || '—',
+          destinationName: booking.queue?.destinationName || '—',
           startStationName: configService.getStationName(),
           seatsBooked: booking.seatsBooked,
           baseAmount: booking.totalAmount - (booking.seatsBooked * 0.200),
@@ -259,8 +259,8 @@ export class QueueBookingService {
           verificationCode: booking.verificationCode,
           bookingType: 'CASH' as 'CASH' | 'ONLINE',
           createdAt: booking.createdAt,
-          queuePosition: booking.queue.queuePosition,
-          estimatedDeparture: booking.queue.estimatedDeparture
+          queuePosition: booking.queue?.queuePosition ?? 0,
+          estimatedDeparture: booking.queue?.estimatedDeparture || null
         }));
 
         return {
@@ -544,8 +544,8 @@ export class QueueBookingService {
         const formattedBookings: QueueBooking[] = bookingIds.map(booking => ({
           id: booking.id,
           queueId: booking.queueId,
-          vehicleLicensePlate: booking.queue.vehicle.licensePlate,
-          destinationName: booking.queue.destinationName,
+          vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || '—',
+          destinationName: booking.queue?.destinationName || '—',
           startStationName: configService.getStationName(),
           seatsBooked: booking.seatsBooked,
           baseAmount: booking.totalAmount - (booking.seatsBooked * serviceFee),
@@ -554,8 +554,8 @@ export class QueueBookingService {
           verificationCode: booking.verificationCode,
           bookingType: (booking.bookingType || 'CASH') as 'CASH' | 'ONLINE',
           createdAt: booking.createdAt,
-          queuePosition: booking.queue.queuePosition,
-          estimatedDeparture: booking.queue.estimatedDeparture
+          queuePosition: booking.queue?.queuePosition ?? 0,
+          estimatedDeparture: booking.queue?.estimatedDeparture || null
         }));
 
         console.log(`✅ Batch created ${bookingIds.length} bookings for ${bookingRequest.seatsRequested} seats`);
@@ -574,7 +574,9 @@ export class QueueBookingService {
         try {
           const { createQueueService } = await import('./queueService');
           const queueService = createQueueService();
-          await queueService.updateVehicleStatusBasedOnBookings(booking.queueId, bookingRequest.staffId);
+          if (booking.queueId) {
+            await queueService.updateVehicleStatusBasedOnBookings(booking.queueId, bookingRequest.staffId);
+          }
         } catch (error) {
           console.error('❌ Error updating vehicle status after booking:', error);
         }
@@ -582,13 +584,17 @@ export class QueueBookingService {
 
       // Create trip records for fully booked vehicles (outside transaction to avoid conflicts)
       for (const booking of result.bookings) {
-        const queueInfo = await prisma.vehicleQueue.findUnique({
-          where: { id: booking.queueId },
-          include: { vehicle: true }
-        });
+        const queueInfo = booking.queueId
+          ? await prisma.vehicleQueue.findUnique({
+              where: { id: booking.queueId },
+              include: { vehicle: true }
+            })
+          : null;
         
         if (queueInfo && queueInfo.status === 'READY' && queueInfo.availableSeats === 0) {
-          await this.createTripRecord(booking.queueId, queueInfo);
+          if (booking.queueId) {
+            await this.createTripRecord(booking.queueId, queueInfo);
+          }
         }
       }
 
@@ -634,9 +640,9 @@ export class QueueBookingService {
         try {
           const { createQueueService } = await import('./queueService');
           const queueService = createQueueService();
-          const upd = await queueService.updateVehicleStatusBasedOnBookings(booking.queueId, bookingRequest.staffId);
-          if (upd.exitPass) {
-            exitPassesCollected.push(upd.exitPass);
+        const upd = booking.queueId ? await queueService.updateVehicleStatusBasedOnBookings(booking.queueId, bookingRequest.staffId) : null;
+          if (upd && (upd as any).exitPass) {
+            exitPassesCollected.push((upd as any).exitPass);
           }
         } catch (err) {
           console.error('❌ Error updating status/collecting exit pass after booking:', err);
@@ -742,15 +748,15 @@ export class QueueBookingService {
       }
 
       // Calculate breakdown from existing data
-      const pricePerSeat = booking.queue.basePrice;
+      const pricePerSeat = booking.queue?.basePrice ?? 0;
       const baseAmount = booking.seatsBooked * pricePerSeat;
       const serviceFeeAmount = booking.totalAmount - baseAmount; // Calculate service fee as difference
       
       const queueBooking: QueueBooking = {
         id: booking.id,
         queueId: booking.queueId,
-        vehicleLicensePlate: booking.queue.vehicle.licensePlate,
-        destinationName: booking.queue.destinationName,
+        vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || '—',
+        destinationName: booking.queue?.destinationName || '—',
         startStationName: configService.getStationName(),
         seatsBooked: booking.seatsBooked,
         baseAmount: baseAmount,
@@ -759,8 +765,8 @@ export class QueueBookingService {
         verificationCode: booking.verificationCode,
         bookingType: (booking.bookingType || 'CASH') as 'CASH' | 'ONLINE',
         createdAt: booking.createdAt,
-        queuePosition: booking.queue.queuePosition,
-        estimatedDeparture: booking.queue.estimatedDeparture
+        queuePosition: booking.queue?.queuePosition ?? 0,
+        estimatedDeparture: booking.queue?.estimatedDeparture || null
       };
 
       return {
@@ -829,15 +835,15 @@ export class QueueBookingService {
       });
 
       // Calculate breakdown from existing data
-      const pricePerSeat = updatedBooking.queue.basePrice;
+      const pricePerSeat = updatedBooking.queue?.basePrice ?? 0;
       const baseAmount = updatedBooking.seatsBooked * pricePerSeat;
       const serviceFeeAmount = updatedBooking.totalAmount - baseAmount; // Calculate service fee as difference
       
       const queueBooking: QueueBooking = {
         id: updatedBooking.id,
         queueId: updatedBooking.queueId,
-        vehicleLicensePlate: updatedBooking.queue.vehicle.licensePlate,
-        destinationName: updatedBooking.queue.destinationName,
+        vehicleLicensePlate: updatedBooking.queue?.vehicle?.licensePlate || '—',
+        destinationName: updatedBooking.queue?.destinationName || '—',
         startStationName: configService.getStationName(),
         seatsBooked: updatedBooking.seatsBooked,
         baseAmount: baseAmount,
@@ -846,8 +852,8 @@ export class QueueBookingService {
         verificationCode: updatedBooking.verificationCode,
         bookingType: (updatedBooking.bookingType || 'CASH') as 'CASH' | 'ONLINE',
         createdAt: updatedBooking.createdAt,
-        queuePosition: updatedBooking.queue.queuePosition,
-        estimatedDeparture: updatedBooking.queue.estimatedDeparture
+        queuePosition: updatedBooking.queue?.queuePosition ?? 0,
+        estimatedDeparture: updatedBooking.queue?.estimatedDeparture || null
       };
 
       return {
@@ -1081,20 +1087,24 @@ export class QueueBookingService {
         }
 
         // Restore seats to the vehicle queue
-        const updatedQueue = await tx.vehicleQueue.update({
-          where: { id: booking.queueId },
-          data: {
-            availableSeats: { increment: actualSeatsToCancel }
-          }
-        });
+        const updatedQueue = booking.queueId
+          ? await tx.vehicleQueue.update({
+              where: { id: booking.queueId },
+              data: {
+                availableSeats: { increment: actualSeatsToCancel }
+              }
+            })
+          : { availableSeats: 0 } as any;
 
         // If the vehicle was READY (fully booked) and now has available seats, change status back to LOADING
-        if (booking.queue.status === 'READY' && updatedQueue.availableSeats > 0) {
-          await tx.vehicleQueue.update({
-            where: { id: booking.queueId },
-            data: { status: 'LOADING' }
-          });
-          console.log(`🔄 Vehicle ${booking.queue.vehicle.licensePlate} status changed from READY to LOADING (seats available again)`);
+        if (booking.queue?.status === 'READY' && updatedQueue.availableSeats > 0) {
+          if (booking.queueId) {
+            await tx.vehicleQueue.update({
+              where: { id: booking.queueId },
+              data: { status: 'LOADING' }
+            });
+          }
+          console.log(`🔄 Vehicle ${(booking.queue?.vehicle?.licensePlate)||'—'} status changed from READY to LOADING (seats available again)`);
         }
 
         return {
@@ -1102,9 +1112,9 @@ export class QueueBookingService {
           actualSeatsToCancel,
           refundAmount,
           isCancellingCompletely,
-          vehicleLicensePlate: booking.queue.vehicle.licensePlate,
-          destinationId: booking.queue.destinationId,
-          destinationName: booking.queue.destinationName
+          vehicleLicensePlate: booking.queue?.vehicle?.licensePlate || '—',
+          destinationId: booking.queue?.destinationId || '',
+          destinationName: booking.queue?.destinationName || '—'
         };
       });
 
